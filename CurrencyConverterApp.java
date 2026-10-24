@@ -131,7 +131,12 @@ public class CurrencyConverterApp {
         }
 
         try {
-            Rates r = getRates(from);
+            Rates supportedCurrencies = getRates("USD");
+            if (!supportedCurrencies.rates().containsKey(from)) {
+                sendJson(ex, 400, error("Unsupported currency: " + from));
+                return;
+            }
+            Rates r = from.equals("USD") ? supportedCurrencies : getRates(from);
             Double rate = r.rates().get(to);
             if (rate == null) {
                 sendJson(ex, 400, error("Unsupported currency: " + to));
