@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Currency Converter</title>
+<style>
+  :root {
+    --bg: #f4f6fb; --card: #ffffff; --text: #1b2333; --muted: #6b7690;
+    --accent: #2f6bff; --accent-d: #1f4fd0; --border: #dde3f0; --err: #d6336c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1420; --card: #181f31; --text: #e8ecf6; --muted: #8b96b2; --border: #2a3350; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
+    background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .card {
+    width: 100%; max-width: 460px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 18px; padding: 28px; box-shadow: 0 10px 30px rgba(20, 30, 60, .08);
+  }
+  h1 { margin: 0 0 4px; font-size: 1.5rem; }
+  .sub { margin: 0 0 22px; color: var(--muted); font-size: .9rem; }
+  label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: 6px; }
+  input, select {
+    width: 100%; padding: 12px 14px; font-size: 1rem; color: var(--text);
+    background: transparent; border: 1px solid var(--border); border-radius: 10px;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  select option { background: var(--card); color: var(--text); }
+  .row { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; align-items: end; margin-top: 16px; }
+  .swap {
+    width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--border);
+    background: transparent; color: var(--accent); font-size: 1.2rem; cursor: pointer;
+  }
+  .swap:hover { background: var(--accent); color: #fff; }
+  button.go {
+    width: 100%; margin-top: 20px; padding: 13px; font-size: 1rem; font-weight: 600;
+    border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer;
+  }
+  button.go:hover { background: var(--accent-d); }
+  button.go:disabled { opacity: .6; cursor: wait; }
+  .result { margin-top: 22px; padding: 18px; border-radius: 12px; background: var(--bg); min-height: 92px; }
+  .big { font-size: 1.7rem; font-weight: 700; word-break: break-word; }
+  .small { color: var(--muted); font-size: .85rem; margin-top: 6px; }
+  .error { color: var(--err); font-weight: 600; }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>Currency Converter</h1>
+  <p class="sub">Live exchange rates, fetched by a Java backend.</p>
+
+  <label for="amount">Amount</label>
+  <input id="amount" type="number" min="0" step="any" value="100" inputmode="decimal">
+
+  <div class="row">
+    <div><label for="from">From</label><select id="from"></select></div>
+    <button class="swap" id="swap" title="Swap currencies" aria-label="Swap currencies">⇄</button>
+    <div><label for="to">To</label><select id="to"></select></div>
+  </div>
+
+  <button class="go" id="go">Convert</button>
+
+  <div class="result" id="result" aria-live="polite">
+    <div class="small">Loading currencies…</div>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const names = new Intl.DisplayNames(['en'], { type: 'currency' });
+const label = code => { try { return `${code} — ${names.of(code)}`; } catch { return code; } };
+
+async function init() {
+  try {
+    const res = await fetch('/api/currencies');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    for (const code of data.currencies) {
+      for (const id of ['from', 'to']) {
+        const opt = document.createElement('option');
+        opt.value = code; opt.textContent = label(code);
+        $(id).appendChild(opt);
+      }
+    }
+    $('from').value = 'USD';
+    $('to').value = data.currencies.includes('INR') ? 'INR' : 'EUR';
+    convert();
+  } catch (e) {
+    $('result').innerHTML = `<div class="error">${e.message}</div>`;
+  }
+}
+
+let timer;
+async function convert() {
+  const amount = $('amount').value, from = $('from').value, to = $('to').value;
+  if (!from || !to) return;
+  if (amount === '' || Number(amount) < 0) {
+    $('result').innerHTML = '<div class="small">Enter a valid amount.</div>';
+    return;
+  }
+  $('go').disabled = true;
+  try {
+    const qs = new URLSearchParams({ from, to, amount });
+    const res = await fetch('/api/convert?' + qs);
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || 'Conversion failed');
+    const fmt = (n, max) => new Intl.NumberFormat(undefined, { maximumFractionDigits: max }).format(n);
+    $('result').innerHTML = `
+      <div class="small">${fmt(d.amount, 4)} ${d.from} =</div>
+      <div class="big">${fmt(d.result, 4)} ${d.to}</div>
+      <div class="small">1 ${d.from} = ${fmt(d.rate, 6)} ${d.to}${d.updated ? ' · Updated ' + d.updated : ''}</div>`;
+  } catch (e) {
+    $('result').innerHTML = `<div class="error">${e.message}</div>`;
+  } finally {
+    $('go').disabled = false;
+  }
+}
+
+$('go').addEventListener('click', convert);
+$('swap').addEventListener('click', () => {
+  const f = $('from').value; $('from').value = $('to').value; $('to').value = f; convert();
+});
+$('from').addEventListener('change', convert);
+$('to').addEventListener('change', convert);
+$('amount').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(convert, 400); });
+$('amount').addEventListener('keydown', e => { if (e.key === 'Enter') convert(); });
+init();
+</script>
+</body>
+</html>
